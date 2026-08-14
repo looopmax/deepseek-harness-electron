@@ -1,0 +1,15 @@
+{
+  "name": "deepseek-dsh-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness desktop shell: boots dsh from source (deepseek-harness submodule) and opens its web UI",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "harness:install": "pnpm -C deepseek-harness install",
+    "harness:build": "pnpm -C deepseek-harness build"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0"
+  }
+}
