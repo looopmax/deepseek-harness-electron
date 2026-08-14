@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "DeepSeek Harness desktop shell: boots dsh from source (deepseek-harness submodule) and opens its web UI",
+  "author": {
+    "name": "looopmax",
+    "email": "shao.x@outlook.com"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
