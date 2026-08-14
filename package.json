@@ -27,11 +27,13 @@
     },
     "files": [
       "main.js",
-      "package.json"
+      "package.json",
+      "assets/icon.png"
     ],
     "afterPack": "build/afterPack.js",
     "mac": {
       "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "entitlements": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
@@ -46,6 +48,7 @@
       ]
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
         "nsis"
       ],
@@ -53,6 +56,7 @@
     },
     "linux": {
       "category": "Development",
+      "icon": "build/icon.png",
       "target": [
         "AppImage",
         "deb"

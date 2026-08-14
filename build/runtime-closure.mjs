@@ -95,7 +95,7 @@ const CURATED_DROP = [
   /^katex@/, /^micromark-extension-math@/, /^mdast-util-math@/, // browser markdown math
   /^micromark@/, /^micromark-/, /^mdast-util-/, /^mdast-/, /^unist-util-/, /^hast-util-/, /^hast-/, /^remark-/, /^rehype-/, // browser markdown AST
   /^react@/, /^react-dom@/, /^@tanstack\+react-virtual@/, /^zustand@/, /^immer@/, // browser UI libs
-  /^@babel\+(?!runtime)/, // dev transforms; @babel/runtime is a runtime dep of json-schema-to-ts
+  /^@babel\+(?!runtime|code-frame|helper-validator-identifier)/, // dev transforms; the @babel/code-frame chain (vendor/hmr) + @babel/runtime (json-schema-to-ts) are runtime deps
   /^css-tree@/, /^@asamuzakjp\+/, // css parsing used by the jsdom chain
   /^@types\+/, // type declarations only
   /^postcss@/, /^autoprefixer@/, /^sass@/, /^less@/, /^stylus@/, // build CSS

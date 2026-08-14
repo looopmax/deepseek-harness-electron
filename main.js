@@ -15,6 +15,15 @@ const NODE_BIN = process.env.DSH_NODE
     ? path.join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : path.join('bin', 'node'))
     : 'node')
 const STARTUP_URL_RE = /dsh web: (http:\/\/[^\s]+)/
+const ICON_PATH = path.join(__dirname, 'assets', 'icon.png')
+const ICON_BASE64 = (() => {
+  try {
+    return fs.readFileSync(ICON_PATH).toString('base64')
+  } catch {
+    /* icon is decorative; fall back to the text-only loading screen */
+    return ''
+  }
+})()
 
 const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
@@ -29,6 +38,7 @@ const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!docty
 </head>
 <body>
   <div>
+    ${ICON_BASE64 ? `<img src="data:image/png;base64,${ICON_BASE64}" width="112" height="112" alt="" style="border-radius:26px; margin-bottom:18px; box-shadow:0 8px 32px rgba(77,107,254,0.35)" />` : ''}
     <h2>DeepSeek Harness</h2>
     <p id="status">starting…</p>
   </div>
@@ -169,6 +179,7 @@ function createWindow(url) {
     width: 1280,
     height: 840,
     title: 'DeepSeek Harness',
+    icon: ICON_PATH,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -195,6 +206,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(async () => {
+    if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON_PATH)) {
+      app.dock.setIcon(ICON_PATH)
+    }
     let loadingWindow = new BrowserWindow({
       width: 1280,
       height: 840,

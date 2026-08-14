@@ -47,11 +47,14 @@ const EXCLUDE_PATTERNS = [
   /^vitest\.shared\.ts$/,
   /tsdown\.config\.ts$/,
   /vite\.config\.ts$/,
-  // Compiled workspace output: tsx resolves everything to src via tsconfig
-  // paths, so packages/vendor/apps lib/ is dead weight in the packaged copy.
-  /^packages[\/][^\/]+[\/][^\/]+[\/]lib([\/]|$)/,
-  /^vendor[\/][^\/]+[\/]lib([\/]|$)/,
-  /^apps[\/][^\/]+[\/]lib([\/]|$)/,
+  // Compiled workspace output: subpath exports ("./typert", "./brand",
+  // "./types", "./surface", "./api", ...) are NOT covered by the tsconfig
+  // "paths" map, so they resolve through each package.json "exports" field to
+  // lib/*.js at runtime. The whole lib tree (minus d.ts / maps / buildinfo)
+  // must therefore ship; the generated typert host manifests live only there.
+  /\.d\.ts$/,
+  /\.d\.cts$/,
+  /\.d\.mts$/,
   // apps/web: only package.json + dist are needed at runtime (the web-app
   // bundle resolves '@deepseek-ai/dsh-web-frontend/dist/index.html').
   /^apps[\/]web[\/](src|public|node_modules|tests|stress-tests|lib)([\/]|$)/,
