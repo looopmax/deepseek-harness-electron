@@ -24,13 +24,16 @@ function excluded(relative) {
 }
 
 // Copy with the native fs.cp implementation (recursive, C++ backed) instead of a
-// per-file JS loop. dereference copies real content so no symlink/junction is
-// recreated: on Windows that avoids requiring privileges to create links.
-// Node preserves file modes by default; a copy of an excluded directory is skipped.
+// per-file JS loop. Symlinks are recreated as links: dereferencing would loop
+// forever on pnpm's cyclic peer links (ELOOP/ENAMETOOLONG), and the default
+// verbatimSymlinks:false would re-point targets at the source path, breaking
+// them in the packaged app. pnpm's relative link targets resolve inside the
+// copied tree, so keeping them verbatim works. Node preserves file modes by
+// default; returning false from the filter skips a directory and its subtree.
 async function copyTree(source, target) {
   await cp(source, target, {
     recursive: true,
-    dereference: true,
+    verbatimSymlinks: true,
     filter: (src) => !excluded(path.relative(source, src)),
   })
 }
