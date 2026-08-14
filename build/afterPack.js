@@ -1,4 +1,4 @@
-const { cp } = require('node:fs/promises')
+const { cp, readdir, realpath, unlink } = require('node:fs/promises')
 const { existsSync } = require('node:fs')
 const path = require('node:path')
 
@@ -46,6 +46,33 @@ async function copyTree(source, target) {
   })
 }
 
+// Guard against symlink cycles that a packager might otherwise follow forever
+// (pnpm can materialize cyclic peer links depending on its layout). Any link
+// that loops is removed; node's resolution walks up to the hoisted entry, so
+// imports still resolve.
+async function breakLinkCycles(root) {
+  let removed = 0
+  async function walk(dir) {
+    let entries
+    try { entries = await readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const p = path.join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        try { await realpath(p) } catch (error) {
+          if (error.code === 'ELOOP') {
+            await unlink(p)
+            removed++
+          }
+        }
+      } else if (entry.isDirectory()) {
+        await walk(p)
+      }
+    }
+  }
+  await walk(root)
+  if (removed > 0) console.log(`[afterPack] broke ${removed} cyclic link(s)`)
+}
+
 exports.default = async function afterPack(context) {
   const { appOutDir, electronPlatformName, packager, arch } = context
   const appDir = electronPlatformName === 'darwin'
@@ -57,6 +84,7 @@ exports.default = async function afterPack(context) {
   const target = path.join(resourcesDir, 'harness')
   console.log(`[afterPack] copying harness to ${target}`)
   await copyTree(HARNESS_SRC, target)
+  await breakLinkCycles(target)
 
   const archName = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || 'x64'
   const platformName = electronPlatformName === 'darwin' ? 'darwin' : electronPlatformName === 'win32' ? 'win32' : 'linux'
