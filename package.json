@@ -33,6 +33,8 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "entitlements": "build/entitlements.mac.plist",
+      "hardenedRuntime": true,
       "target": [
         {
           "target": "dmg",
