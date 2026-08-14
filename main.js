@@ -4,10 +4,16 @@ const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const HARNESS_DIR = path.join(__dirname, 'deepseek-harness')
+const HARNESS_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'harness')
+  : path.join(__dirname, 'deepseek-harness')
 const HARNESS_NODE_MODULES = path.join(HARNESS_DIR, 'node_modules')
 const HARNESS_DIST_INDEX = path.join(HARNESS_DIR, 'apps', 'web', 'dist', 'index.html')
 const HARNESS_CMD = process.env.DSH_BIN || 'pnpm'
+const NODE_BIN = process.env.DSH_NODE
+  || (app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : path.join('bin', 'node'))
+    : 'node')
 const STARTUP_URL_RE = /dsh web: (http:\/\/[^\s]+)/
 
 const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
@@ -66,6 +72,7 @@ function runCommand(command, args, cwd) {
 }
 
 async function ensureHarnessBuilt() {
+  if (app.isPackaged) return
   if (!fs.existsSync(HARNESS_NODE_MODULES)) {
     log('installing harness dependencies…')
     await runCommand(HARNESS_CMD, ['install'], HARNESS_DIR)
@@ -95,14 +102,27 @@ function waitForServer(url, timeoutMs = 60000) {
 }
 
 function startHarness() {
+  const command = app.isPackaged ? NODE_BIN : HARNESS_CMD
+  const args = app.isPackaged
+    ? ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', '0']
+    : ['dsh', 'web', '--port', '0']
+  const env = { ...process.env }
+  if (app.isPackaged) {
+    env.DSH_HOME = path.join(app.getPath('userData'), 'dsh')
+  }
   return new Promise((resolve, reject) => {
-    const child = spawn(HARNESS_CMD, ['dsh', 'web', '--port', '0'], {
+    log(`spawning ${command} ${args.join(' ')} (cwd: ${HARNESS_DIR}, packaged: ${app.isPackaged})`)
+    const child = spawn(command, args, {
       cwd: HARNESS_DIR,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env,
     })
     harnessProc = child
+    child.on('error', (error) => {
+      log(`harness spawn error: ${error.message}`)
+      reject(error)
+    })
 
     let url = null
     child.stdout.on('data', (chunk) => {

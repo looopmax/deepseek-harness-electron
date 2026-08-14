@@ -1,0 +1,98 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac
+            os: macos-latest
+            args: --mac
+          - name: linux
+            os: ubuntu-latest
+            args: --linux
+          - name: win
+            os: windows-latest
+            args: --win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: deepseek-harness/pnpm-lock.yaml
+
+      - name: Install harness dependencies
+        run: pnpm -C deepseek-harness install --frozen-lockfile
+
+      - name: Build harness
+        run: pnpm -C deepseek-harness run build
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Download Node.js runtime
+        run: node build/fetch-node.mjs
+
+      - name: Build installer
+        run: npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=null
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Ad-hoc sign app and rebuild DMG (macOS)
+        if: matrix.name == 'mac'
+        shell: bash
+        run: |
+          set -e
+          VERSION="$(node -p "require('./package.json').version")"
+          for APP in release/mac*/"DeepSeek Harness.app"; do
+            case "$(dirname "$APP")" in
+              *-arm64) ARCH=arm64 ;;
+              *)       ARCH=x64 ;;
+            esac
+            codesign --force --sign - --timestamp=none "$APP"
+            hdiutil create -volname "DeepSeek Harness" -srcfolder "$APP" -ov -format UDZO \
+              "release/DeepSeek Harness-${VERSION}-${ARCH}.dmg"
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.name }}
+          path: release/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          merge-multiple: true
+          path: release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
