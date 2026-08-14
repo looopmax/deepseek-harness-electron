@@ -17,6 +17,10 @@ const EXCLUDE_PATTERNS = [
   /\.map$/,
   /(^|[\\/])node_modules[\\/]\.cache([\\/]|$)/,
   /(^|[\\/])\.dsh-lefthook-owned$/,
+  // python/sdk-runtime is a deploy-only manifest whose isolated dependency tree
+  // contains cyclic peer links (cordis <-> cordis-plugin-loader) that hang
+  // symlink-following packagers (ELOOP on Linux, OOM/giant-string on mac/win).
+  /(^|[\\/])python[\\/]sdk-runtime([\\/]|$)/,
   // Dev/build tooling never needed by the packaged runtime (the CLI runs from
   // source via tsx and serves the prebuilt web dist). Dropping them cuts the
   // installer by ~100MB and shortens installer compression time.
