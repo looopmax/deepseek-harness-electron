@@ -17,6 +17,10 @@ const EXCLUDE_PATTERNS = [
   /\.map$/,
   /(^|[\\/])node_modules[\\/]\.cache([\\/]|$)/,
   /(^|[\\/])\.dsh-lefthook-owned$/,
+  // Dev/build tooling never needed by the packaged runtime (the CLI runs from
+  // source via tsx and serves the prebuilt web dist). Dropping them cuts the
+  // installer by ~100MB and shortens installer compression time.
+  /node_modules[\\/]\.pnpm[\\/](typescript|vite|vitest|@vitest|tsdown|oxlint|jscpd|playwright|@playwright|eslint|@eslint|eslint-plugin|@typescript-eslint|prettier|jsdom|happy-dom|@types|@testing-library|knip|publint|lefthook)(@|\+)/,
 ]
 
 function excluded(relative) {
