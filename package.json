@@ -12,8 +12,8 @@
     "start": "electron .",
     "harness:install": "pnpm -C deepseek-harness install",
     "harness:build": "pnpm -C deepseek-harness build",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "pack": "node build/run-builder.mjs --dir",
+    "dist": "node build/run-builder.mjs"
   },
   "devDependencies": {
     "electron": "^43.4.0",
