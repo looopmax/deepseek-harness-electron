@@ -70,9 +70,9 @@ jobs:
         shell: bash
         run: |
           set -e
-          VERSION="$(node -p \"require('./package.json').version\")"
+          VERSION="$(node -p "require('./package.json').version")"
           for APP in release/mac*/"DeepSeek Harness.app"; do
-            case "$(dirname \"$APP\")" in
+            case "$(dirname "$APP")" in
               *-arm64) ARCH=arm64 ;;
               *)       ARCH=x64 ;;
             esac
