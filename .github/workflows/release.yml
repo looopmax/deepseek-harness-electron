@@ -25,7 +25,9 @@ jobs:
           - name: linux
             os: ubuntu-latest
             args: --linux
-          - name: win
+          # - name: win   # temporarily disabled for the 0.1.0 release
+          #   os: windows-latest
+          #   args: --win
             os: windows-latest
             args: --win
     runs-on: ${{ matrix.os }}
