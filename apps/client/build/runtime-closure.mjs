@@ -102,6 +102,17 @@ const CURATED_DROP = [
   /^prettier@/, /^@prettier\+/, // formatter
   /^vue@/, /^@vue\+/, /^@iconify\+/, /^mark\.js@/, /^dompurify@/, /^fast-check@/, // browser / property-test libs
   /^es-toolkit@/,
+  // Optional LLM-provider SDKs (lazy-loaded adapters; the default DeepSeek
+  // presets never import them) and browser-only UI deps that the web bundle
+  // already inlines. Dropping them also keeps the packaged .pnpm store paths
+  // under Windows' 260-char limit (their deep filenames + peer-suffixed entry
+  // names made the NSIS 7-Zip step fail with "Access is denied").
+  /^@mistralai\+/,
+  /^@aws-sdk\+/,
+  /^@smithy\+/,
+  /^@aws-crypto\+/,
+  /^@mixmark-io\+domino@/,
+  /^mermaid@/, /^@mermaid-js\+/,
 ]
 
 function isCuratedDrop(entry) {

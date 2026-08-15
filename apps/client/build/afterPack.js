@@ -1,4 +1,4 @@
-const { cp, readdir, stat, lstat, readlink, symlink, unlink } = require('node:fs/promises')
+const { cp, readdir, stat, lstat, readlink, symlink, unlink, rename } = require('node:fs/promises')
 const { existsSync } = require('node:fs')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -308,8 +308,70 @@ async function materializeStore(harnessTarget, pnpmKeep) {
   console.log(`[afterPack] materialized ${count} .pnpm store entries into packaged harness`)
 }
 
+// Shorten long .pnpm entry names in the packaged harness.
+//
+// pnpm names virtual-store entries by package + full peer resolution, so e.g.
+// "@earendil-works+pi-ai@0.82.1_@modelcontextprotocol+sdk@1.30.0_..." pushes
+// file paths past Windows' 260-char limit, and the NSIS 7-Zip build then dies
+// with "Access is denied" on those files (7-Zip is not longPathAware, so the
+// LongPathsEnabled registry flag does not help). Entries longer than 40 chars
+// are renamed to short ids (p0001, p0002, ...) and every link in the packaged
+// tree that resolves into .pnpm/<old>/ is re-pointed at .pnpm/<new>/.
+async function shortenStore(harnessTarget) {
+  const storeDir = path.join(harnessTarget, 'node_modules', '.pnpm')
+  let entries
+  try { entries = await readdir(storeDir) } catch { return 0 }
+  const long = entries.filter((e) => e !== 'node_modules' && e.length > 40).sort()
+  if (long.length === 0) return 0
+  const renameMap = new Map()
+  long.forEach((name, i) => renameMap.set(name, `p${String(i + 1).padStart(4, '0')}`))
+
+  for (const [oldName, newName] of renameMap) {
+    await rename(path.join(storeDir, oldName), path.join(storeDir, newName)).catch(() => {})
+  }
+
+  let rewritten = 0
+  async function walk(dir) {
+    let list
+    try { list = await readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const entry of list) {
+      const p = path.join(dir, entry.name)
+      let st
+      try { st = await lstat(p) } catch { continue }
+      if (!st.isSymbolicLink()) {
+        if (st.isDirectory()) await walk(p)
+        continue
+      }
+      let target
+      try { target = await readlink(p) } catch { continue }
+      const resolved = path.resolve(path.dirname(p), target)
+      if (!resolved.startsWith(storeDir + path.sep)) continue
+      const rel = path.relative(storeDir, resolved)
+      const first = rel.split(path.sep)[0]
+      const short = renameMap.get(first)
+      if (!short) continue
+      const newResolved = path.join(storeDir, short, rel.slice(first.length))
+      let targetStat
+      try { targetStat = await lstat(newResolved) } catch { continue }
+      const newTarget = path.relative(path.dirname(p), newResolved)
+      const type = targetStat.isDirectory() ? 'dir' : 'file'
+      await unlink(p)
+      try {
+        await symlink(newTarget, p, type)
+        rewritten++
+      } catch {
+        try { await symlink(newResolved, p, 'junction'); rewritten++ } catch { /* dropped */ }
+      }
+    }
+  }
+  await walk(harnessTarget)
+  console.log(`[afterPack] shortened ${renameMap.size} long .pnpm entry names, remapped ${rewritten} link(s)`)
+  return renameMap.size
+}
+
 // Exposed for tests.
 exports.rewriteEscapingLinks = rewriteEscapingLinks
+exports.shortenStore = shortenStore
 exports.cleanupBrokenLinks = cleanupBrokenLinks
 exports.copyTree = copyTree
 
@@ -366,6 +428,11 @@ exports.default = async function afterPack(context) {
   if (existsSync(rootBin)) {
     await copyTree(rootBin, path.join(target, 'node_modules', '.bin'))
   }
+  await cleanupBrokenLinks(target)
+
+  // Windows: shorten long .pnpm entry names so NSIS 7-Zip can archive the tree
+  // (see shortenStore above). No-op when no entry exceeds the threshold.
+  await shortenStore(target)
   await cleanupBrokenLinks(target)
 
   const archName = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || 'x64'

@@ -123,6 +123,26 @@ try {
       resolvedTsx === path.join(pkgDst, 'node_modules', '.pnpm', 'tsx@4.0.0', 'node_modules', 'tsx') &&
       existsSync(resolvedTsx))
     check('non-kept store link removed', !existsSync(path.join(pkgDst, 'apps', 'cli', 'node_modules', 'pruned')))
+
+    // --- shortenStore: long peer-suffixed entry names get short ids and every
+    // link into them is remapped (the NSIS 7-Zip long-path fix).
+    {
+      const { shortenStore } = require('./afterPack.js')
+      const longEntry = 'foo@1.0.0_someverylongpeersuffix@2.0.0_another@3.0.0_supports-color@9.4.0'
+      mkdirSync(path.join(pkgDst, 'node_modules', '.pnpm', longEntry, 'node_modules', 'foo'), { recursive: true })
+      writeFileSync(path.join(pkgDst, 'node_modules', '.pnpm', longEntry, 'node_modules', 'foo', 'index.js'), '')
+      await fsp.symlink(path.join(pkgDst, 'node_modules', '.pnpm', longEntry, 'node_modules', 'foo'),
+        path.join(pkgDst, 'apps', 'cli', 'node_modules', 'foo'), 'dir')
+      await shortenStore(pkgDst)
+      const storeEntries = readdirSync(path.join(pkgDst, 'node_modules', '.pnpm'))
+      const shortEntry = storeEntries.find((e) => /^p\d{4}$/.test(e))
+      check('long entry renamed to short id', !!shortEntry)
+      const afterShort = readlinkSync(path.join(pkgDst, 'apps', 'cli', 'node_modules', 'foo'))
+      const resolvedShort = path.resolve(path.join(pkgDst, 'apps', 'cli', 'node_modules'), afterShort)
+      check('link remapped to short entry',
+        resolvedShort === path.join(pkgDst, 'node_modules', '.pnpm', shortEntry, 'node_modules', 'foo') &&
+        existsSync(resolvedShort))
+    }
   }
 
   console.log(failures.length === 0 ? '\nALL PASS' : `\n${failures.length} FAILURE(S)`)
