@@ -25,11 +25,13 @@ jobs:
           - name: linux
             os: ubuntu-latest
             args: --linux
-          # - name: win   # temporarily disabled for the 0.1.0 release
-          #   os: windows-latest
-          #   args: --win
-          #   os: windows-latest
-          #   args: --win
+          - name: win
+            os: windows-latest
+            # --dir keeps electron-builder from running the NSIS 7-Zip step,
+            # which fails on the symlink-rich packaged harness (7za reports
+            # "Access is denied" for every symlink/junction). We archive the
+            # unpacked app ourselves with tar --dereference below.
+            args: --win --dir
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -101,6 +103,14 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Package Windows app as zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pkg = Get-Content apps/client/package.json | ConvertFrom-Json
+          $artifact = "release/$($pkg.build.productName)-$($pkg.version)-win-x64.zip"
+          tar -a -c -L -f $artifact -C release/win-unpacked .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
