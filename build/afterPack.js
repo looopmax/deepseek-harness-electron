@@ -1,4 +1,4 @@
-const { cp, readdir, stat, unlink } = require('node:fs/promises')
+const { cp, readdir, stat, lstat, readlink, symlink, unlink } = require('node:fs/promises')
 const { existsSync } = require('node:fs')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -89,15 +89,106 @@ function matchesAny(relative, patterns) {
 // them in the packaged app. pnpm's relative link targets resolve inside the
 // copied tree, so keeping them verbatim works. Node preserves file modes by
 // default; returning false from the filter skips a directory and its subtree.
+//
+// path.relative yields platform separators ("\" on Windows); every exclude
+// pattern below is written with "/", so normalize before matching or the
+// whole filter silently matched nothing on Windows and the full unpruned
+// tree (incl. .git/tests/.pnpm) got packaged.
 // ---------------------------------------------------------------------------
 function copyTree(source, target, filter) {
+  const toPosix = (relative) => relative.split(path.sep).join('/')
   return cp(source, target, {
     recursive: true,
     verbatimSymlinks: true,
     filter: filter
-      ? (src) => !filter(path.relative(source, src))
+      ? (src) => !filter(toPosix(path.relative(source, src)))
       : undefined,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Rewrite links that escape the packaged tree.
+//
+// pnpm on Windows links workspace dependencies (and .pnpm peers) as NTFS
+// junctions, and junction targets are always ABSOLUTE paths into the build
+// machine's source tree. Copying them verbatim leaves the packaged app
+// referencing files outside itself: the installer compressor then traverses
+// into the whole source tree — following junction cycles until the OS path
+// limit, which is what killed the Windows CI run with a megabyte-scale
+// "Invalid string length" error — and the installed app would carry links
+// that dangle on any other machine.
+//
+// Every link whose resolved target sits outside `root` is re-pointed at the
+// same location INSIDE the packaged tree (relative target). Links whose
+// destination was pruned by the copy filter are dropped.
+// ---------------------------------------------------------------------------
+async function rewriteEscapingLinks(root, sourceRoot) {
+  let rewritten = 0
+  let removed = 0
+
+  const insideRoot = (abs) => {
+    const rel = path.relative(root, abs)
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  }
+  const insideSource = (abs) => {
+    const rel = path.relative(sourceRoot, abs)
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  }
+
+  async function walk(dir) {
+    let entries
+    try { entries = await readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const p = path.join(dir, entry.name)
+      let st
+      try { st = await lstat(p) } catch { continue }
+      if (!st.isSymbolicLink()) {
+        if (st.isDirectory()) await walk(p)
+        continue
+      }
+      let target
+      try { target = await readlink(p) } catch { continue }
+      const resolved = path.resolve(path.dirname(p), target)
+      if (insideRoot(resolved)) continue // already self-contained
+      if (!insideSource(resolved)) {
+        // Points outside the harness tree entirely (should not happen).
+        await unlink(p)
+        removed++
+        continue
+      }
+      const equiv = path.join(root, path.relative(sourceRoot, resolved))
+      let targetStat = null
+      try { targetStat = await lstat(equiv) } catch { /* pruned by the filter */ }
+      if (!targetStat || path.resolve(equiv) === path.resolve(p)) {
+        await unlink(p)
+        removed++
+        continue
+      }
+      const newTarget = path.relative(path.dirname(p), equiv)
+      const type = targetStat.isDirectory() ? 'dir' : 'file'
+      await unlink(p)
+      try {
+        await symlink(newTarget, p, type)
+        rewritten++
+      } catch {
+        // Environments without symlink privilege (no Developer Mode on
+        // Windows): fall back to an absolute junction. It resolves on the
+        // build machine so packaging stays deterministic; a link we cannot
+        // recreate at all is dropped rather than shipped broken.
+        try {
+          await symlink(equiv, p, 'junction')
+          rewritten++
+        } catch {
+          removed++
+        }
+      }
+    }
+  }
+
+  await walk(root)
+  if (rewritten > 0 || removed > 0) {
+    console.log(`[afterPack] links normalized: ${rewritten} rewritten to in-package relative, ${removed} removed`)
+  }
 }
 
 // Guard against symlink cycles (pnpm can materialize cyclic peer links) and
@@ -127,6 +218,11 @@ async function cleanupBrokenLinks(root) {
   await walk(root)
   if (removed > 0) console.log(`[afterPack] removed ${removed} broken/cyclic link(s)`)
 }
+
+// Exposed for tests.
+exports.rewriteEscapingLinks = rewriteEscapingLinks
+exports.cleanupBrokenLinks = cleanupBrokenLinks
+exports.copyTree = copyTree
 
 exports.default = async function afterPack(context) {
   const { appOutDir, electronPlatformName, packager, arch } = context
@@ -167,6 +263,7 @@ exports.default = async function afterPack(context) {
 
   console.log(`[afterPack] copying harness to ${target}`)
   await copyTree(HARNESS_SRC, target, excluded)
+  await rewriteEscapingLinks(target, HARNESS_SRC)
   await cleanupBrokenLinks(target)
 
   const archName = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || 'x64'
@@ -176,6 +273,7 @@ exports.default = async function afterPack(context) {
     const runtimeTarget = path.join(resourcesDir, 'runtime')
     console.log(`[afterPack] copying node runtime to ${runtimeTarget}`)
     await copyTree(runtimeSource, runtimeTarget, (relative) => matchesAny(relative, RUNTIME_EXCLUDE_PATTERNS))
+    await rewriteEscapingLinks(runtimeTarget, runtimeSource)
     await cleanupBrokenLinks(runtimeTarget)
   } else {
     console.warn(`[afterPack] node runtime not found at ${runtimeSource}, skipping`)

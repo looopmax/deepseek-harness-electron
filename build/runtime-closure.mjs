@@ -188,7 +188,10 @@ export function computeClosure(root) {
         if (entry.isSymbolicLink()) {
           const target = resolveLink(p)
           if (!target) continue
-          const match = target.match(/[\/]\.pnpm[\/]([^\/]+)[\/]/)
+          // Accept both separators: path.join yields "/" on POSIX and "\"
+          // on Windows, and a "/"-only class silently matched nothing on
+          // Windows (0 .pnpm entries kept → all external deps pruned).
+          const match = target.match(/[\\\/]\.pnpm[\\\/]([^\\\/]+)[\\\/]/)
           if (match) {
             addPnpm(match[1])
           } else if (addWorkspaceTargets) {

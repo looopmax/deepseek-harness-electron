@@ -57,15 +57,34 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
+      # Keep electron-builder failures printable: without this, a child
+      # process that floods stdout makes the builder die with an opaque
+      # "RangeError: Invalid string length" instead of the real error.
+      - name: Sanitize builder error logging
+        run: node build/sanitize-builder-log.mjs
+
       - name: Download Node.js runtime
         run: node build/fetch-node.mjs
 
-      - name: Build installer
-        run: npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=-
+      - name: Build installer (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # @electron/osx-sign walks the whole app bundle (~100k files) while
+          # signing; the runner's default soft fd limit (256) is exhausted and
+          # the build dies with EMFILE: too many open files.
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=-
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # @electron/osx-sign walks the whole app bundle in node; the harness copy
           # makes it exceed the default ~2GB heap when signing on macOS.
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Build installer (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=-
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Upload artifacts
