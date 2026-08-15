@@ -58,6 +58,16 @@ jobs:
       # Keep electron-builder failures printable: without this, a child
       # process that floods stdout makes the builder die with an opaque
       # "RangeError: Invalid string length" instead of the real error.
+      # The packaged harness's .pnpm store has peer-suffixed entry names that
+      # push file paths past Windows' 260-char limit; 7-Zip (longPathAware)
+      # honors the LongPathsEnabled registry flag once set for new processes.
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Force | Out-Null
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -Type DWord
+
       - name: Sanitize builder error logging
         run: node apps/client/build/sanitize-builder-log.mjs
 
@@ -73,7 +83,8 @@ jobs:
           # the build dies with EMFILE: too many open files.
           ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
           cd apps/client
-          npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=-
+          # identity=null skips the ad-hoc signing walk of the huge bundle.
+          npx electron-builder ${{ matrix.args }} --publish never --config.mac.identity=null
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # @electron/osx-sign walks the whole app bundle in node; the harness copy
