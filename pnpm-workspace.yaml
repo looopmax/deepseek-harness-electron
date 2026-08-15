@@ -1,0 +1,44 @@
+# The whole repo is ONE pnpm workspace: apps/client (the electron app) plus the
+# deepseek-harness submodule at packages/deepseek-harness, whose entire internal
+# workspace is absorbed so the harness and the app share a single dependency
+# graph and lockfile. The globs mirror packages/deepseek-harness/pnpm-workspace.yaml
+# (re-rooted) and the config below carries over its overrides / build approvals /
+# patches, which pnpm needs to install the harness graph.
+packages:
+  - apps/*
+  - packages/*
+  - packages/deepseek-harness/vendor/*
+  - packages/deepseek-harness/packages/*/*
+  - packages/deepseek-harness/native/landlock-run
+  - packages/deepseek-harness/native/landlock-run/packages/*
+  - packages/deepseek-harness/apps/*
+  - packages/deepseek-harness/website
+  - packages/deepseek-harness/examples
+  - packages/deepseek-harness/python/sdk-runtime
+
+linkWorkspacePackages: true
+
+overrides:
+  '@deepseek-ai/cosmokit': 'link:packages/deepseek-harness/vendor/cosmokit'
+  '@deepseek-ai/schemastery': 'link:packages/deepseek-harness/vendor/schemastery'
+  # app-builder-lib (electron-builder) uses the ElectronDownloadCacheMode API
+  # that @electron/get 3.0.0 lacks; force a version that exports it.
+  '@electron/get': '^5.1.0'
+
+peerDependencyRules:
+  allowedVersions:
+    typescript: '>=5 <7'
+
+allowBuilds:
+  esbuild: true
+  lefthook: true
+  node-pty: true
+  '@google/genai': false
+  protobufjs: false
+  node-addon-require-builtin: false
+  koffi: true
+  electron-winstaller: true
+  '@deepseek-ai/dsh-subprocess-local@file:packages/deepseek-harness/packages/subprocess/subprocess-local': true
+
+patchedDependencies:
+  node-pty@1.1.0: packages/deepseek-harness/patches/node-pty@1.1.0.patch

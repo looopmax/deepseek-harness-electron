@@ -19,22 +19,26 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 const MARKER = '[dsh-sanitize-log-patch]'
 
-// bun installs dependencies inside node_modules/.bun and only symlinks direct
-// deps into the consuming workspace package (apps/client); builder-util is a
-// transitive dep, so fall back to scanning the .bun store directly.
+// Only direct deps get symlinked into the consuming workspace package
+// (apps/client); builder-util is a transitive dep, so fall back to scanning the
+// package manager's virtual store (pnpm's node_modules/.pnpm or bun's .bun).
 function findBuilderUtilLog() {
   try {
     return require.resolve('builder-util/out/log.js', {
-      paths: [path.join(HERE, '..', 'apps', 'client'), HERE],
+      paths: [path.join(HERE, '..'), HERE],
     })
   } catch { /* not a direct dep - fall through to the store scan */ }
-  const store = path.join(HERE, '..', 'node_modules', '.bun')
-  let entries
-  try { entries = readdirSync(store) } catch { return null }
-  const hit = entries.filter((e) => e.startsWith('builder-util@')).sort().pop()
-  if (!hit) return null
-  const candidate = path.join(store, hit, 'node_modules', 'builder-util', 'out', 'log.js')
-  return existsSync(candidate) ? candidate : null
+  const rootModules = path.join(HERE, '..', '..', '..', 'node_modules')
+  for (const storeName of ['.pnpm', '.bun']) {
+    const store = path.join(rootModules, storeName)
+    let entries
+    try { entries = readdirSync(store) } catch { continue }
+    const hit = entries.filter((e) => e.startsWith('builder-util@')).sort().pop()
+    if (!hit) continue
+    const candidate = path.join(store, hit, 'node_modules', 'builder-util', 'out', 'log.js')
+    if (existsSync(candidate)) return candidate
+  }
+  return null
 }
 
 const file = findBuilderUtilLog()

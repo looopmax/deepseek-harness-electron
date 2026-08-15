@@ -8,13 +8,14 @@
     "email": "shao.x@outlook.com"
   },
   "main": "main.js",
+  "packageManager": "pnpm@11.17.0",
   "scripts": {
     "start": "electron .",
-    "pack": "node ../../build/run-builder.mjs --dir",
-    "dist": "node ../../build/run-builder.mjs"
+    "pack": "node build/run-builder.mjs --dir",
+    "dist": "node build/run-builder.mjs"
   },
   "dependencies": {
-    "deepseek-harness": "file:../../packages/deepseek-harness"
+    "@deepseek-ai/dsh-root": "workspace:*"
   },
   "devDependencies": {
     "electron": "^43.4.0",
@@ -24,21 +25,22 @@
     "appId": "com.looopmax.deepseek-harness",
     "productName": "DeepSeek Harness",
     "directories": {
-      "output": "../release",
-      "buildResources": "../build"
+      "output": "../../release",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
       "package.json",
       "assets/icon.png",
+      "!node_modules/@deepseek-ai{,/**}",
       "!node_modules/deepseek-harness{,/**}"
     ],
-    "afterPack": "../../build/afterPack.js",
+    "afterPack": "build/afterPack.js",
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "icon.icns",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "entitlements": "../../build/entitlements.mac.plist",
+      "entitlements": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
       "target": [
         {

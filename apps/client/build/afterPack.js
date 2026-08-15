@@ -3,7 +3,12 @@ const { existsSync } = require('node:fs')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const HARNESS_SRC = path.join(__dirname, '..', 'packages', 'deepseek-harness')
+const REPO_ROOT = path.join(__dirname, '..', '..', '..')
+const HARNESS_SRC = path.join(REPO_ROOT, 'packages', 'deepseek-harness')
+// The repo's pnpm virtual store: in the absorbed workspace the harness's
+// external deps are hoisted here, and afterPack materializes the runtime
+// keep-set of it into the packaged harness.
+const REPO_STORE = path.join(REPO_ROOT, 'node_modules', '.pnpm')
 
 // ---------------------------------------------------------------------------
 // Harness-side excludes.
@@ -122,9 +127,25 @@ function copyTree(source, target, filter) {
 // same location INSIDE the packaged tree (relative target). Links whose
 // destination was pruned by the copy filter are dropped.
 // ---------------------------------------------------------------------------
-async function rewriteEscapingLinks(root, sourceRoot) {
+async function rewriteEscapingLinks(root, sourceRoot, options = {}) {
+  const { pnpmKeep = null, pnpmStoreDir = null, pnpmTargetDir = null } = options
   let rewritten = 0
   let removed = 0
+  const materialized = new Set()
+
+  // Copy a .pnpm store entry (or the hidden-hoist dir) from the repo's virtual
+  // store into the packaged harness's store, once per entry.
+  const materializeEntry = async (entry) => {
+    if (materialized.has(entry)) return true
+    const dest = path.join(pnpmTargetDir, entry)
+    try { await lstat(dest); materialized.add(entry); return true } catch { /* not yet copied */ }
+    const src = path.join(pnpmStoreDir, entry)
+    let st
+    try { st = await lstat(src) } catch { return false }
+    await copyTree(src, dest)
+    materialized.add(entry)
+    return true
+  }
 
   const insideRoot = (abs) => {
     const rel = path.relative(root, abs)
@@ -133,6 +154,28 @@ async function rewriteEscapingLinks(root, sourceRoot) {
   const insideSource = (abs) => {
     const rel = path.relative(sourceRoot, abs)
     return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  }
+
+  // Replace the symlink at p with one pointing at equiv.
+  const relink = async (p, equiv, targetStat) => {
+    const newTarget = path.relative(path.dirname(p), equiv)
+    const type = targetStat.isDirectory() ? 'dir' : 'file'
+    await unlink(p)
+    try {
+      await symlink(newTarget, p, type)
+      rewritten++
+    } catch {
+      // Environments without symlink privilege (no Developer Mode on
+      // Windows): fall back to an absolute junction. It resolves on the
+      // build machine so packaging stays deterministic; a link we cannot
+      // recreate at all is dropped rather than shipped broken.
+      try {
+        await symlink(equiv, p, 'junction')
+        rewritten++
+      } catch {
+        removed++
+      }
+    }
   }
 
   async function walk(dir) {
@@ -148,15 +191,53 @@ async function rewriteEscapingLinks(root, sourceRoot) {
       }
       let target
       try { target = await readlink(p) } catch { continue }
+
+      // Where the link text resolves when read from the COPY.
       const resolved = path.resolve(path.dirname(p), target)
       if (insideRoot(resolved)) continue // already self-contained
-      if (!insideSource(resolved)) {
+
+      // Where the same text resolves when read from the SOURCE tree. In the
+      // absorbed workspace the harness's links are relative to the REPO root,
+      // so copy-relative resolution lands in the wrong place (the packaged
+      // harness is nested deeper); source-side resolution gives the intent.
+      const rel = path.relative(root, p)
+      const srcP = path.join(sourceRoot, rel)
+      const intended = path.resolve(path.dirname(srcP), target)
+
+      // Link into the repo's .pnpm virtual store: rewrite it to the packaged
+      // store, materializing the keep-set entry on demand.
+      if (pnpmStoreDir && intended.startsWith(pnpmStoreDir + path.sep)) {
+        const storeRel = path.relative(pnpmStoreDir, intended)
+        const entry = storeRel.split(path.sep)[0]
+        if (entry !== 'node_modules' && pnpmKeep && !pnpmKeep.has(entry)) {
+          await unlink(p)
+          removed++
+          continue
+        }
+        if (!(await materializeEntry(entry))) {
+          await unlink(p)
+          removed++
+          continue
+        }
+        const equiv = path.join(pnpmTargetDir, storeRel)
+        let targetStat = null
+        try { targetStat = await lstat(equiv) } catch { /* entry content pruned */ }
+        if (!targetStat || path.resolve(equiv) === path.resolve(p)) {
+          await unlink(p)
+          removed++
+          continue
+        }
+        await relink(p, equiv, targetStat)
+        continue
+      }
+
+      if (!insideSource(intended)) {
         // Points outside the harness tree entirely (should not happen).
         await unlink(p)
         removed++
         continue
       }
-      const equiv = path.join(root, path.relative(sourceRoot, resolved))
+      const equiv = path.join(root, path.relative(sourceRoot, intended))
       let targetStat = null
       try { targetStat = await lstat(equiv) } catch { /* pruned by the filter */ }
       if (!targetStat || path.resolve(equiv) === path.resolve(p)) {
@@ -164,24 +245,7 @@ async function rewriteEscapingLinks(root, sourceRoot) {
         removed++
         continue
       }
-      const newTarget = path.relative(path.dirname(p), equiv)
-      const type = targetStat.isDirectory() ? 'dir' : 'file'
-      await unlink(p)
-      try {
-        await symlink(newTarget, p, type)
-        rewritten++
-      } catch {
-        // Environments without symlink privilege (no Developer Mode on
-        // Windows): fall back to an absolute junction. It resolves on the
-        // build machine so packaging stays deterministic; a link we cannot
-        // recreate at all is dropped rather than shipped broken.
-        try {
-          await symlink(equiv, p, 'junction')
-          rewritten++
-        } catch {
-          removed++
-        }
-      }
+      await relink(p, equiv, targetStat)
     }
   }
 
@@ -219,6 +283,31 @@ async function cleanupBrokenLinks(root) {
   if (removed > 0) console.log(`[afterPack] removed ${removed} broken/cyclic link(s)`)
 }
 
+// Materialize the runtime keep-set of the repo's .pnpm virtual store into the
+// packaged harness. Entry-internal links are relative within .pnpm, so the full
+// transitive set must be copied as a group (not just the entries directly
+// linked from the harness tree) for resolution to work inside the package.
+async function materializeStore(harnessTarget, pnpmKeep) {
+  if (!pnpmKeep || pnpmKeep.size === 0) return
+  const storeTarget = path.join(harnessTarget, 'node_modules', '.pnpm')
+  let count = 0
+  const copyOne = async (entry) => {
+    const src = path.join(REPO_STORE, entry)
+    let st
+    try { st = await lstat(src) } catch { return }
+    await copyTree(src, path.join(storeTarget, entry))
+    count++
+  }
+  // pnpm's hidden-hoist dir (node_modules/.pnpm/node_modules) is shipped
+  // wholesale: deep resolution walks up into it, dangling links inside are
+  // removed by cleanupBrokenLinks afterwards.
+  await copyOne('node_modules')
+  for (const entry of pnpmKeep) {
+    if (entry !== 'node_modules') await copyOne(entry)
+  }
+  console.log(`[afterPack] materialized ${count} .pnpm store entries into packaged harness`)
+}
+
 // Exposed for tests.
 exports.rewriteEscapingLinks = rewriteEscapingLinks
 exports.cleanupBrokenLinks = cleanupBrokenLinks
@@ -238,7 +327,7 @@ exports.default = async function afterPack(context) {
   let pnpmKeep = null
   try {
     const { computeClosure } = await import('./runtime-closure.mjs')
-    const closure = computeClosure(HARNESS_SRC)
+    const closure = computeClosure(REPO_ROOT)
     pnpmKeep = closure.pnpmKeep
     console.log(`[afterPack] runtime closure: ${closure.workspaceNames.length} workspace packages, ${pnpmKeep.size} .pnpm entries kept`)
   } catch (error) {
@@ -263,12 +352,25 @@ exports.default = async function afterPack(context) {
 
   console.log(`[afterPack] copying harness to ${target}`)
   await copyTree(HARNESS_SRC, target, excluded)
-  await rewriteEscapingLinks(target, HARNESS_SRC)
+  await materializeStore(target, pnpmKeep)
+  await rewriteEscapingLinks(target, HARNESS_SRC, {
+    pnpmKeep,
+    pnpmStoreDir: REPO_STORE,
+    pnpmTargetDir: path.join(target, 'node_modules', '.pnpm'),
+  })
+  await cleanupBrokenLinks(target)
+
+  // Bin shims are hoisted to the workspace root (node_modules/.bin); ship them
+  // so PATH-based bin resolution keeps working inside the packaged harness.
+  const rootBin = path.join(REPO_ROOT, 'node_modules', '.bin')
+  if (existsSync(rootBin)) {
+    await copyTree(rootBin, path.join(target, 'node_modules', '.bin'))
+  }
   await cleanupBrokenLinks(target)
 
   const archName = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || 'x64'
   const platformName = electronPlatformName === 'darwin' ? 'darwin' : electronPlatformName === 'win32' ? 'win32' : 'linux'
-  const runtimeSource = path.join(__dirname, '..', 'runtime', `${platformName}-${archName}`)
+  const runtimeSource = path.join(REPO_ROOT, 'runtime', `${platformName}-${archName}`)
   if (existsSync(runtimeSource)) {
     const runtimeTarget = path.join(resourcesDir, 'runtime')
     console.log(`[afterPack] copying node runtime to ${runtimeTarget}`)

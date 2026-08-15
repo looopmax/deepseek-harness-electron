@@ -2,19 +2,13 @@
   "name": "deepseek-dsh-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Monorepo for the DeepSeek Harness desktop app. bun manages the app workspace (apps/*); the deepseek-harness git submodule under packages/ is an upstream pnpm workspace that installs its own dependencies.",
-  "workspaces": [
-    "apps/*"
-  ],
-  "overrides": {
-    "@deepseek-ai/dsh-tool-session-query": "npm:debug@4"
-  },
+  "description": "Monorepo for the DeepSeek Harness desktop app: apps/client (electron) + the deepseek-harness submodule (packages/deepseek-harness), one pnpm workspace.",
+  "packageManager": "pnpm@11.17.0",
   "scripts": {
-    "start": "bun run --cwd apps/client start",
-    "dev": "bun run --cwd apps/client start",
-    "pack": "bun run --cwd apps/client pack",
-    "dist": "bun run --cwd apps/client dist",
-    "harness:install": "pnpm -C packages/deepseek-harness install",
-    "harness:build": "pnpm -C packages/deepseek-harness run build"
+    "start": "pnpm --filter @looopmax/dsh-desktop start",
+    "dev": "pnpm --filter @looopmax/dsh-desktop start",
+    "pack": "pnpm --filter @looopmax/dsh-desktop pack",
+    "dist": "pnpm --filter @looopmax/dsh-desktop dist",
+    "harness:build": "pnpm --filter @deepseek-ai/dsh-root run build"
   }
 }

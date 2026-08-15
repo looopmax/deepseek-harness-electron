@@ -38,12 +38,8 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --recursive
 
-      # The app workspace is a bun monorepo (apps/*); the deepseek-harness
-      # submodule is an upstream pnpm workspace and keeps its own toolchain.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-
+      # One pnpm workspace: apps/client + the absorbed deepseek-harness
+      # submodule (see pnpm-workspace.yaml).
       - uses: pnpm/action-setup@v4
         with:
           version: 11
@@ -52,25 +48,22 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: packages/deepseek-harness/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install app dependencies (bun workspace)
-        run: bun install
-
-      - name: Install harness dependencies
-        run: pnpm -C packages/deepseek-harness install --frozen-lockfile
+      - name: Install dependencies (single pnpm workspace)
+        run: pnpm install --frozen-lockfile
 
       - name: Build harness
-        run: pnpm -C packages/deepseek-harness run build
+        run: pnpm --filter @deepseek-ai/dsh-root run build
 
       # Keep electron-builder failures printable: without this, a child
       # process that floods stdout makes the builder die with an opaque
       # "RangeError: Invalid string length" instead of the real error.
       - name: Sanitize builder error logging
-        run: node build/sanitize-builder-log.mjs
+        run: node apps/client/build/sanitize-builder-log.mjs
 
       - name: Download Node.js runtime
-        run: node build/fetch-node.mjs
+        run: node apps/client/build/fetch-node.mjs
 
       # electron-builder reads its config from apps/client/package.json.
       - name: Build installer (macOS)

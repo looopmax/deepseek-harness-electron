@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises'
 
 const VERSION = process.env.NODE_VERSION || 'v24.14.0'
 const BASE = 'https://nodejs.org/dist'
-const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
+const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..')
 const TARGET_DIR = join(ROOT, 'runtime')
 
 const OS_NAMES = { darwin: 'darwin', linux: 'linux', win32: 'win' }

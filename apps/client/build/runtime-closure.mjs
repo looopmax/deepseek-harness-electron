@@ -90,7 +90,7 @@ const CURATED_DROP = [
   /^lefthook@/, /^lefthook-/, // git hooks
   /^lightningcss@/, /^lightningcss-/, // vite CSS transform
   /^browserslist@/, /^caniuse-lite@/, /^update-browserslist-db@/, // build data
-  /^esbuild@(?!0\.28\.1)/, /^@esbuild\+(?![^@]+@0\.28\.1)/, // keep tsx's esbuild 0.28.1
+  /^esbuild@(?!0\.28\.)/, /^@esbuild\+(?![^@]+@0\.28\.)/, // keep tsx's esbuild (0.28.x, used by the runtime tsx loader)
   /^shiki@/, /^@shikijs\+/, // browser syntax highlighting
   /^katex@/, /^micromark-extension-math@/, /^mdast-util-math@/, // browser markdown math
   /^micromark@/, /^micromark-/, /^mdast-util-/, /^mdast-/, /^unist-util-/, /^hast-util-/, /^hast-/, /^remark-/, /^rehype-/, // browser markdown AST
@@ -110,7 +110,8 @@ function isCuratedDrop(entry) {
 
 /**
  * Compute the runtime closure.
- * @param {string} root - absolute path of the deepseek-harness working tree.
+ * @param {string} root - absolute path of the repo root (the harness lives at
+ *   packages/deepseek-harness and its .pnpm virtual store is the repo root's).
  * @returns {{ pnpmKeep: Set<string>, workspaceNames: string[] }}
  */
 export function computeClosure(root) {
@@ -122,19 +123,19 @@ export function computeClosure(root) {
       if (workspaceMap.has(name)) seeds.add(name)
     }
   }
-  addPatch('packages/bundle/base/cordis.patch.yml')
-  addPatch('packages/bundle/web-app/cordis.patch.yml')
-  addPatch('packages/bundle/headless/cordis.patch.yml')
+  addPatch('packages/deepseek-harness/packages/bundle/base/cordis.patch.yml')
+  addPatch('packages/deepseek-harness/packages/bundle/web-app/cordis.patch.yml')
+  addPatch('packages/deepseek-harness/packages/bundle/headless/cordis.patch.yml')
 
-  const presetDir = join(root, 'apps/cli/config/agent-presets')
+  const presetDir = join(root, 'packages/deepseek-harness/apps/cli/config/agent-presets')
   if (existsSync(presetDir)) {
     for (const preset of readdirSync(presetDir)) {
-      addPatch(join('apps/cli/config/agent-presets', preset, 'agent.cordis.yml'))
+      addPatch(join('packages/deepseek-harness/apps/cli/config/agent-presets', preset, 'agent.cordis.yml'))
     }
   }
 
   try {
-    const cliPkg = JSON.parse(readFileSync(join(root, 'apps/cli/package.json'), 'utf8'))
+    const cliPkg = JSON.parse(readFileSync(join(root, 'packages/deepseek-harness/apps/cli/package.json'), 'utf8'))
     for (const name of Object.keys(cliPkg.dependencies || {})) {
       if (workspaceMap.has(name)) seeds.add(name)
     }

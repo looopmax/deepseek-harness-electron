@@ -91,6 +91,40 @@ try {
   walk(dst)
   check('zero escaping links remain in packaged tree', escapes === 0)
 
+  // --- absorbed-workspace store scenario: the harness links carry REPO-ROOT
+  // relative text (they resolve into the repo's .pnpm store), which points
+  // nowhere when read from the deeper packaged tree. afterPack must rewrite
+  // them into a packaged .pnpm store it materializes from the keep-set.
+  {
+    const fsp = await import('node:fs/promises')
+    const base2 = path.join(base, 'absorbed')
+    const storeSrc = path.join(base2, 'store')
+    const pkgSrc = path.join(base2, 'harness')
+    const pkgDst = path.join(base2, 'out')
+    mkdirSync(path.join(storeSrc, 'tsx@4.0.0', 'node_modules', 'tsx'), { recursive: true })
+    writeFileSync(path.join(storeSrc, 'tsx@4.0.0', 'node_modules', 'tsx', 'index.js'), 'export {}')
+    mkdirSync(path.join(storeSrc, 'pruned@1.0.0', 'node_modules', 'pruned'), { recursive: true })
+    writeFileSync(path.join(storeSrc, 'pruned@1.0.0', 'node_modules', 'pruned', 'index.js'), '')
+    mkdirSync(path.join(pkgSrc, 'apps', 'cli', 'node_modules'), { recursive: true })
+    await fsp.symlink('../../../../store/tsx@4.0.0/node_modules/tsx', path.join(pkgSrc, 'apps', 'cli', 'node_modules', 'tsx'), 'dir')
+    await fsp.symlink('../../../../store/pruned@1.0.0/node_modules/pruned', path.join(pkgSrc, 'apps', 'cli', 'node_modules', 'pruned'), 'dir')
+
+    await copyTree(pkgSrc, pkgDst)
+    await rewriteEscapingLinks(pkgDst, pkgSrc, {
+      pnpmKeep: new Set(['tsx@4.0.0']),
+      pnpmStoreDir: storeSrc,
+      pnpmTargetDir: path.join(pkgDst, 'node_modules', '.pnpm'),
+    })
+    await cleanupBrokenLinks(pkgDst)
+
+    const afterTsx = readlinkSync(path.join(pkgDst, 'apps', 'cli', 'node_modules', 'tsx'))
+    const resolvedTsx = path.resolve(path.join(pkgDst, 'apps', 'cli', 'node_modules'), afterTsx)
+    check('store link rewritten into packaged .pnpm entry',
+      resolvedTsx === path.join(pkgDst, 'node_modules', '.pnpm', 'tsx@4.0.0', 'node_modules', 'tsx') &&
+      existsSync(resolvedTsx))
+    check('non-kept store link removed', !existsSync(path.join(pkgDst, 'apps', 'cli', 'node_modules', 'pruned')))
+  }
+
   console.log(failures.length === 0 ? '\nALL PASS' : `\n${failures.length} FAILURE(S)`)
   process.exitCode = failures.length === 0 ? 0 : 1
 } finally {
