@@ -1,0 +1,74 @@
+{
+  "name": "@looopmax/dsh-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness desktop shell: forks dsh from source (packages/deepseek-harness) and opens its web UI",
+  "author": {
+    "name": "looopmax",
+    "email": "shao.x@outlook.com"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "node ../../build/run-builder.mjs --dir",
+    "dist": "node ../../build/run-builder.mjs"
+  },
+  "dependencies": {
+    "deepseek-harness": "file:../../packages/deepseek-harness"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.looopmax.deepseek-harness",
+    "productName": "DeepSeek Harness",
+    "directories": {
+      "output": "../release",
+      "buildResources": "../build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "assets/icon.png",
+      "!node_modules/deepseek-harness{,/**}"
+    ],
+    "afterPack": "../../build/afterPack.js",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "icon.icns",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "entitlements": "../../build/entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "icon.png",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

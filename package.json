@@ -2,70 +2,19 @@
   "name": "deepseek-dsh-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "DeepSeek Harness desktop shell: boots dsh from source (deepseek-harness submodule) and opens its web UI",
-  "author": {
-    "name": "looopmax",
-    "email": "shao.x@outlook.com"
+  "description": "Monorepo for the DeepSeek Harness desktop app. bun manages the app workspace (apps/*); the deepseek-harness git submodule under packages/ is an upstream pnpm workspace that installs its own dependencies.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "overrides": {
+    "@deepseek-ai/dsh-tool-session-query": "npm:debug@4"
   },
-  "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "harness:install": "pnpm -C deepseek-harness install",
-    "harness:build": "pnpm -C deepseek-harness build",
-    "pack": "node build/run-builder.mjs --dir",
-    "dist": "node build/run-builder.mjs"
-  },
-  "devDependencies": {
-    "electron": "^43.4.0",
-    "electron-builder": "^26.0.12"
-  },
-  "build": {
-    "appId": "com.looopmax.deepseek-harness",
-    "productName": "DeepSeek Harness",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "main.js",
-      "package.json",
-      "assets/icon.png"
-    ],
-    "afterPack": "build/afterPack.js",
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "entitlements": "build/entitlements.mac.plist",
-      "hardenedRuntime": true,
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "icon": "build/icon.png",
-      "target": [
-        "nsis"
-      ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    },
-    "linux": {
-      "category": "Development",
-      "icon": "build/icon.png",
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "start": "bun run --cwd apps/client start",
+    "dev": "bun run --cwd apps/client start",
+    "pack": "bun run --cwd apps/client pack",
+    "dist": "bun run --cwd apps/client dist",
+    "harness:install": "pnpm -C packages/deepseek-harness install",
+    "harness:build": "pnpm -C packages/deepseek-harness run build"
   }
 }

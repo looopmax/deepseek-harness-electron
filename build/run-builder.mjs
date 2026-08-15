@@ -16,11 +16,17 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HEAP_FLAG = '--max-old-space-size=8192'
 const require = createRequire(import.meta.url)
 
-const pkgPath = require.resolve('electron-builder/package.json')
+// bun installs dependencies inside node_modules/.bun with symlinks only in
+// the consuming workspace package (apps/client); resolve from there.
+const pkgPath = require.resolve('electron-builder/package.json', {
+  paths: [path.join(process.cwd(), 'apps', 'client'), path.join(HERE, '..', 'apps', 'client'), process.cwd(), HERE],
+})
 const pkg = require(pkgPath)
 const binRel = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin['electron-builder']
 if (!binRel) {

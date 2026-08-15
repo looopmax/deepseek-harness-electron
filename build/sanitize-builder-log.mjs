@@ -10,17 +10,35 @@
 //
 // Idempotent: exits 0 without touching anything when the patch marker is
 // already present or the target file has an unexpected layout.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 const MARKER = '[dsh-sanitize-log-patch]'
 
-let file
-try {
-  file = require.resolve('builder-util/out/log.js')
-} catch {
+// bun installs dependencies inside node_modules/.bun and only symlinks direct
+// deps into the consuming workspace package (apps/client); builder-util is a
+// transitive dep, so fall back to scanning the .bun store directly.
+function findBuilderUtilLog() {
+  try {
+    return require.resolve('builder-util/out/log.js', {
+      paths: [path.join(HERE, '..', 'apps', 'client'), HERE],
+    })
+  } catch { /* not a direct dep - fall through to the store scan */ }
+  const store = path.join(HERE, '..', 'node_modules', '.bun')
+  let entries
+  try { entries = readdirSync(store) } catch { return null }
+  const hit = entries.filter((e) => e.startsWith('builder-util@')).sort().pop()
+  if (!hit) return null
+  const candidate = path.join(store, hit, 'node_modules', 'builder-util', 'out', 'log.js')
+  return existsSync(candidate) ? candidate : null
+}
+
+const file = findBuilderUtilLog()
+if (!file) {
   console.log('sanitize-builder-log: builder-util not installed, nothing to do')
   process.exit(0)
 }

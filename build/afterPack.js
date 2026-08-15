@@ -3,7 +3,7 @@ const { existsSync } = require('node:fs')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const HARNESS_SRC = path.join(__dirname, '..', 'deepseek-harness')
+const HARNESS_SRC = path.join(__dirname, '..', 'packages', 'deepseek-harness')
 
 // ---------------------------------------------------------------------------
 // Harness-side excludes.

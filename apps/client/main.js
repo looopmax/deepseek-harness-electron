@@ -1,15 +1,22 @@
 const { app, BrowserWindow, dialog } = require('electron')
-const { spawn } = require('node:child_process')
+const { fork, spawn } = require('node:child_process')
 const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
 
 const HARNESS_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'harness')
-  : path.join(__dirname, 'deepseek-harness')
+  : path.join(__dirname, '..', '..', 'packages', 'deepseek-harness')
 const HARNESS_NODE_MODULES = path.join(HARNESS_DIR, 'node_modules')
 const HARNESS_DIST_INDEX = path.join(HARNESS_DIR, 'apps', 'web', 'dist', 'index.html')
+// The dsh CLI is booted straight from its TypeScript source via tsx.
+const HARNESS_CLI_ENTRY = path.join(HARNESS_DIR, 'apps', 'cli', 'src', 'bin.ts')
+// The harness submodule is an upstream pnpm workspace; its own node_modules
+// must be pnpm-installed (the packaged runtime closure in build/runtime-closure.mjs
+// relies on pnpm's .pnpm layout).
 const HARNESS_CMD = process.env.DSH_BIN || 'pnpm'
+// fork() defaults to process.execPath (the Electron binary); the dsh CLI must
+// run under plain Node, so point it at a real node explicitly.
 const NODE_BIN = process.env.DSH_NODE
   || (app.isPackaged
     ? path.join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : path.join('bin', 'node'))
@@ -84,7 +91,7 @@ function runCommand(command, args, cwd) {
 async function ensureHarnessBuilt() {
   if (app.isPackaged) return
   if (!fs.existsSync(HARNESS_NODE_MODULES)) {
-    log('installing harness dependencies…')
+    log('installing harness dependencies (pnpm)…')
     await runCommand(HARNESS_CMD, ['install'], HARNESS_DIR)
   }
   if (!fs.existsSync(HARNESS_DIST_INDEX)) {
@@ -112,25 +119,26 @@ function waitForServer(url, timeoutMs = 60000) {
 }
 
 function startHarness() {
-  const command = app.isPackaged ? NODE_BIN : HARNESS_CMD
-  const args = app.isPackaged
-    ? ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', '0']
-    : ['dsh', 'web', '--port', '0']
+  // Boot dsh straight from source: fork() the CLI entry with tsx preloaded,
+  // exactly like `node --import tsx/esm apps/cli/src/bin.ts web --port 0`.
+  const args = ['web', '--port', '0']
   const env = { ...process.env }
   if (app.isPackaged) {
     env.DSH_HOME = path.join(app.getPath('userData'), 'dsh')
   }
   return new Promise((resolve, reject) => {
-    log(`spawning ${command} ${args.join(' ')} (cwd: ${HARNESS_DIR}, packaged: ${app.isPackaged})`)
-    const child = spawn(command, args, {
+    log(`forking ${HARNESS_CLI_ENTRY} ${args.join(' ')} (cwd: ${HARNESS_DIR}, node: ${NODE_BIN}, packaged: ${app.isPackaged})`)
+    const child = fork(HARNESS_CLI_ENTRY, args, {
       cwd: HARNESS_DIR,
       detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      execPath: NODE_BIN,
+      execArgv: ['--import', 'tsx/esm'],
       env,
     })
     harnessProc = child
     child.on('error', (error) => {
-      log(`harness spawn error: ${error.message}`)
+      log(`harness fork error: ${error.message}`)
       reject(error)
     })
 
