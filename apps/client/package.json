@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "DeepSeek Harness desktop shell: forks dsh from source (packages/deepseek-harness) and opens its web UI",
   "homepage": "https://github.com/looopmax/deepseek-harness-electron",
