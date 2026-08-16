@@ -14,7 +14,7 @@
 // Node's standard bare-specifier resolution still works for dynamically
 // loaded bundles/plugins.
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -109,24 +109,40 @@ async function main() {
   console.log('[hoist] removing harness node_modules symlink trees')
   removeAllNodeModulesDirs(HARNESS)
 
-  const filterArgs = []
-  for (const name of workspaceNames) filterArgs.push('--filter', name)
+  // Passing 195 --filter arguments would exceed the Windows command-line
+  // limit. Write a temporary workspace file that only contains the runtime
+  // workspace package dirs, so pnpm installs exactly the runtime closure.
+  const packageDirs = []
+  for (const name of workspaceNames) {
+    const rel = workspaceMap.get(name)
+    if (!rel) {
+      console.warn(`[hoist] no source dir for ${name}`)
+      continue
+    }
+    packageDirs.push('  - ' + JSON.stringify(rel.split(path.sep).join('/')))
+  }
+  const workspaceYml = path.join(HARNESS, 'pnpm-workspace.yaml')
+  const originalWorkspaceYml = readFileSync(workspaceYml, 'utf8')
+  writeFileSync(workspaceYml, 'packages:\n' + packageDirs.join('\n') + '\n')
+  console.log(`[hoist] wrote temporary workspace file with ${packageDirs.length} package dirs`)
 
-  console.log('[hoist] running pnpm install --node-linker=hoisted --hoist-pattern=* --prod ' +
-    `(--filter x ${workspaceNames.length})`)
-  const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+  const pnpmCommand = process.platform === 'win32'
+    ? path.join(process.env.PNPM_HOME || '', 'pnpm.cmd')
+    : 'pnpm'
+  console.log('[hoist] running pnpm install --node-linker=hoisted --hoist-pattern=* --prod --lockfile=false')
   const install = spawnSync(pnpmCommand, [
     'install',
     '--node-linker=hoisted',
     '--hoist-pattern=*',
     '--prod',
-    ...filterArgs,
+    '--lockfile=false',
   ], {
     cwd: HARNESS,
     stdio: 'inherit',
     env: process.env,
     shell: process.platform === 'win32',
   })
+  writeFileSync(workspaceYml, originalWorkspaceYml)
 
   if (install.error) {
     console.error(`[hoist] failed to run ${pnpmCommand}: ${install.error.message}`)
