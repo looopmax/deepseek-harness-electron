@@ -114,7 +114,8 @@ async function main() {
 
   console.log('[hoist] running pnpm install --node-linker=hoisted --hoist-pattern=* --prod ' +
     `(--filter x ${workspaceNames.length})`)
-  const install = spawnSync('pnpm', [
+  const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+  const install = spawnSync(pnpmCommand, [
     'install',
     '--node-linker=hoisted',
     '--hoist-pattern=*',
@@ -124,7 +125,13 @@ async function main() {
     cwd: HARNESS,
     stdio: 'inherit',
     env: process.env,
+    shell: process.platform === 'win32',
   })
+
+  if (install.error) {
+    console.error(`[hoist] failed to run ${pnpmCommand}: ${install.error.message}`)
+    process.exit(1)
+  }
 
   if (install.status !== 0) {
     // The root package's postinstall installs lefthook, which is intentionally
@@ -132,9 +139,9 @@ async function main() {
     // node-pty, koffi, subprocess-local) have already run by this point. Accept
     // the failure only when the runtime loader chain is present.
     const required = ['node_modules/tsx', 'node_modules/esbuild', 'node_modules/koffi', 'node_modules/node-pty']
-    const missing = required.filter((rel) => existsSync(path.join(HARNESS, rel)))
-    if (missing.length !== required.length) {
-      console.error(`[hoist] pnpm install failed and required packages are missing: ${required.filter((r) => !missing.includes(r)).join(', ')}`)
+    const missing = required.filter((rel) => !existsSync(path.join(HARNESS, rel)))
+    if (missing.length > 0) {
+      console.error(`[hoist] pnpm install failed and required packages are missing: ${missing.join(', ')}`)
       process.exit(1)
     }
     console.warn('[hoist] pnpm install exited non-zero, but required runtime packages are present; continuing')
