@@ -414,25 +414,34 @@ exports.default = async function afterPack(context) {
 
   console.log(`[afterPack] copying harness to ${target}`)
   await copyTree(HARNESS_SRC, target, excluded)
-  await materializeStore(target, pnpmKeep)
-  await rewriteEscapingLinks(target, HARNESS_SRC, {
-    pnpmKeep,
-    pnpmStoreDir: REPO_STORE,
-    pnpmTargetDir: path.join(target, 'node_modules', '.pnpm'),
-  })
-  await cleanupBrokenLinks(target)
 
-  // Bin shims are hoisted to the workspace root (node_modules/.bin); ship them
-  // so PATH-based bin resolution keeps working inside the packaged harness.
-  const rootBin = path.join(REPO_ROOT, 'node_modules', '.bin')
-  if (existsSync(rootBin)) {
-    await copyTree(rootBin, path.join(target, 'node_modules', '.bin'))
+  // On Windows the harness is prepared by prepare-hoisted-harness.mjs as a
+  // symlink-free pnpm hoisted install before electron-builder runs. The .pnpm
+  // virtual store and symlink/junction graph are absent, so store
+  // materialization and link rewiring are unnecessary (and the root .bin
+  // shims would re-introduce links into the packaged tree).
+  const hoistedWindows = process.platform === 'win32' && process.env.DSH_HOISTED_HARNESS === '1'
+  if (!hoistedWindows) {
+    await materializeStore(target, pnpmKeep)
+    await rewriteEscapingLinks(target, HARNESS_SRC, {
+      pnpmKeep,
+      pnpmStoreDir: REPO_STORE,
+      pnpmTargetDir: path.join(target, 'node_modules', '.pnpm'),
+    })
+    await cleanupBrokenLinks(target)
+
+    // Bin shims are hoisted to the workspace root (node_modules/.bin); ship them
+    // so PATH-based bin resolution keeps working inside the packaged harness.
+    const rootBin = path.join(REPO_ROOT, 'node_modules', '.bin')
+    if (existsSync(rootBin)) {
+      await copyTree(rootBin, path.join(target, 'node_modules', '.bin'))
+    }
+    await cleanupBrokenLinks(target)
+
+    // Windows: shorten long .pnpm entry names so NSIS 7-Zip can archive the tree
+    // (see shortenStore above). No-op when no entry exceeds the threshold.
+    await shortenStore(target)
   }
-  await cleanupBrokenLinks(target)
-
-  // Windows: shorten long .pnpm entry names so NSIS 7-Zip can archive the tree
-  // (see shortenStore above). No-op when no entry exceeds the threshold.
-  await shortenStore(target)
   await cleanupBrokenLinks(target)
 
   const archName = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[arch] || 'x64'

@@ -27,7 +27,7 @@ jobs:
             args: --linux
           - name: win
             os: windows-latest
-            args: --win
+            args: --win --dir
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -55,6 +55,14 @@ jobs:
       - name: Build harness
         run: pnpm --filter @deepseek-ai/dsh-root run build
 
+      # On Windows the packaged harness must be symlink-free: pnpm's normal
+      # symlink/junction graph makes both 7-Zip and NSIS File /r fail, and
+      # dereferencing that graph during archive creation produced a 1.6 GB zip.
+      # Re-install only the runtime closure as a flat hoisted node_modules.
+      - name: Prepare symlink-free hoisted harness (Windows)
+        if: runner.os == 'Windows'
+        run: node apps/client/build/prepare-hoisted-harness.mjs
+
       # Keep electron-builder failures printable: without this, a child
       # process that floods stdout makes the builder die with an opaque
       # "RangeError: Invalid string length" instead of the real error.
@@ -70,12 +78,6 @@ jobs:
 
       - name: Sanitize builder error logging
         run: node apps/client/build/sanitize-builder-log.mjs
-
-      # NSIS's built-in File /r compressor does not shell out to 7za, which
-      # is what failed on the packaged harness's pnpm symlinks/junctions.
-      - name: Enable NSIS built-in compressor (Windows)
-        if: runner.os == 'Windows'
-        run: node apps/client/build/patch-nsis-builtin-compressor.mjs
 
       - name: Download Node.js runtime
         run: node apps/client/build/fetch-node.mjs
@@ -105,28 +107,18 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_OPTIONS: --max-old-space-size=8192
+          # afterPack skips .pnpm-store materialization for the hoisted
+          # symlink-free Windows harness.
+          DSH_HOISTED_HARNESS: ${{ runner.os == 'Windows' && '1' || '0' }}
 
-      - name: Smoke test Windows installer
+      - name: Package Windows app as zip
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $installer = Get-ChildItem release/*.exe | Select-Object -First 1
-          if (-not $installer) { throw "No installer found" }
-          Write-Host "Running installer: $($installer.FullName)"
-          Start-Process -FilePath $installer.FullName -ArgumentList '/S','/D=C:/dshtest' -Wait
-          $checks = @(
-            @{ path = 'C:/dshtest/DeepSeek Harness.exe'; kind = 'Leaf' },
-            @{ path = 'C:/dshtest/resources/harness/apps/cli/node_modules/@deepseek-ai/cordis'; kind = 'Container' },
-            @{ path = 'C:/dshtest/resources/harness/node_modules/.pnpm/turndown@7.2.4/node_modules/@mixmark-io/domino'; kind = 'Container' }
-          )
-          foreach ($check in $checks) {
-            if (Test-Path $check.path -PathType $check.kind) {
-              Write-Host "OK $($check.path)"
-            } else {
-              throw "Installer smoke test failed: $($check.path) is not a $($check.kind)"
-            }
-          }
-          Write-Host "Windows installer smoke test passed"
+          $pkg = Get-Content apps/client/package.json | ConvertFrom-Json
+          $artifact = "release/$($pkg.build.productName)-$($pkg.version)-win-x64.zip"
+          tar -a -c -f $artifact -C release/win-unpacked .
+          Write-Host "Created $artifact"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
