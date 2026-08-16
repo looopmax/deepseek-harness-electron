@@ -111,7 +111,6 @@ const CURATED_DROP = [
   /^@aws-sdk\+/,
   /^@smithy\+/,
   /^@aws-crypto\+/,
-  /^@mixmark-io\+domino@/,
   /^mermaid@/, /^@mermaid-js\+/,
 ]
 
