@@ -27,11 +27,7 @@ jobs:
             args: --linux
           - name: win
             os: windows-latest
-            # --dir keeps electron-builder from running the NSIS 7-Zip step,
-            # which fails on the symlink-rich packaged harness (7za reports
-            # "Access is denied" for every symlink/junction). We archive the
-            # unpacked app ourselves with tar --dereference below.
-            args: --win --dir
+            args: --win
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -75,6 +71,12 @@ jobs:
       - name: Sanitize builder error logging
         run: node apps/client/build/sanitize-builder-log.mjs
 
+      # NSIS's built-in File /r compressor does not shell out to 7za, which
+      # is what failed on the packaged harness's pnpm symlinks/junctions.
+      - name: Enable NSIS built-in compressor (Windows)
+        if: runner.os == 'Windows'
+        run: node apps/client/build/patch-nsis-builtin-compressor.mjs
+
       - name: Download Node.js runtime
         run: node apps/client/build/fetch-node.mjs
 
@@ -104,13 +106,27 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           NODE_OPTIONS: --max-old-space-size=8192
 
-      - name: Package Windows app as zip
+      - name: Smoke test Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $pkg = Get-Content apps/client/package.json | ConvertFrom-Json
-          $artifact = "release/$($pkg.build.productName)-$($pkg.version)-win-x64.zip"
-          tar -a -c -L -f $artifact -C release/win-unpacked .
+          $installer = Get-ChildItem release/*.exe | Select-Object -First 1
+          if (-not $installer) { throw "No installer found" }
+          Write-Host "Running installer: $($installer.FullName)"
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S','/D=C:/dshtest' -Wait
+          $checks = @(
+            @{ path = 'C:/dshtest/DeepSeek Harness.exe'; kind = 'Leaf' },
+            @{ path = 'C:/dshtest/resources/harness/apps/cli/node_modules/@deepseek-ai/cordis'; kind = 'Container' },
+            @{ path = 'C:/dshtest/resources/harness/node_modules/.pnpm/turndown@7.2.4/node_modules/@mixmark-io/domino'; kind = 'Container' }
+          )
+          foreach ($check in $checks) {
+            if (Test-Path $check.path -PathType $check.kind) {
+              Write-Host "OK $($check.path)"
+            } else {
+              throw "Installer smoke test failed: $($check.path) is not a $($check.kind)"
+            }
+          }
+          Write-Host "Windows installer smoke test passed"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
