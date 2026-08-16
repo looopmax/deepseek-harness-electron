@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.4] - 2026-08-16
+
+### Fixed
+- macOS: fixed the main window lifecycle. The loading window was destroyed before the main window was ready, which could leave the new window unfocused. Keyboard input then did not reach the web UI, so the onboarding API-key input and the workspace directory picker input could not be typed in, and the workspace picker could not be opened.
 All notable changes to this project are documented in this file. Releases follow [Semantic Versioning](https://semver.org/).
 
 ## [0.1.3] - 2026-08-16

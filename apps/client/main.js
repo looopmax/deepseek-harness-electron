@@ -54,6 +54,7 @@ const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!docty
 
 let harnessProc = null
 let mainWindow = null
+let loadingWindow = null
 let quitting = false
 
 function log(message) {
@@ -188,6 +189,7 @@ function createWindow(url) {
     height: 840,
     title: 'DeepSeek Harness',
     icon: ICON_PATH,
+    show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -196,6 +198,20 @@ function createWindow(url) {
   })
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
     return { action: 'deny' }
+  })
+  // Show only when the renderer is ready: the previous code destroyed the
+  // loading window immediately after createWindow(), which could leave the
+  // new window unfocused on macOS. Keyboard input then went to the loading
+  // window (already closed) or to no window at all, so inputs looked broken
+  // and the workspace picker could not be opened.
+  mainWindow.once('ready-to-show', () => {
+    if (loadingWindow) {
+      loadingWindow.destroy()
+      loadingWindow = null
+    }
+    mainWindow.show()
+    mainWindow.focus()
+    if (process.platform === 'darwin') app.focus({ steal: true })
   })
   mainWindow.loadURL(url)
   mainWindow.on('closed', () => {
@@ -217,7 +233,7 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON_PATH)) {
       app.dock.setIcon(ICON_PATH)
     }
-    let loadingWindow = new BrowserWindow({
+    loadingWindow = new BrowserWindow({
       width: 1280,
       height: 840,
       show: false,
@@ -231,8 +247,6 @@ if (!app.requestSingleInstanceLock()) {
       const url = await startHarness()
       log(`harness ready at ${url}`)
       createWindow(url)
-      loadingWindow.destroy()
-      loadingWindow = null
     } catch (error) {
       log(`failed to start harness: ${error.message}`)
       dialog.showErrorBox('DeepSeek Harness failed to start', error.message)
