@@ -4,3 +4,5 @@ release/
 runtime/
 *.log
 .DS_Store
+release-oom
+release-test
